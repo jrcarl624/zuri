@@ -22,7 +22,7 @@ use zuri_world::range::YRange;
 use zuri_world::WorldPlugin;
 
 use crate::client::ClientPlugin;
-use crate::entity::Head;
+use crate::entity::{EntityPlugin, Head};
 use crate::input::InputPlugin;
 use crate::player::{Local, LocalPlayerPlugin};
 
@@ -56,6 +56,7 @@ async fn main() {
         .add_plugin(InputPlugin)
         .add_plugin(LocalPlayerPlugin)
         .add_plugin(WorldPlugin)
+        .add_plugin(EntityPlugin)
 
         .insert_resource(BlockTextures::default())
         .insert_resource(ChunkManager::default())
@@ -120,7 +121,7 @@ fn chunk_load_system(
                     perceptual_roughness: 0.94,
                     ..default()
                 }),
-                transform: Transform::from_xyz(pos.x as f32, -32., pos.y as f32),
+                transform: Transform::from_xyz(pos.x as f32, 0., pos.y as f32),
                 ..default()
             },
             s,

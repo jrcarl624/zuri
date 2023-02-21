@@ -19,8 +19,12 @@ use zuri_net::client::Handler;
 use zuri_net::client::data::{ClientData, IdentityData};
 use zuri_net::client::login::LoginData;
 use zuri_net::connection::ConnError;
+use zuri_net::proto::packet::add_actor::AddActor;
+use zuri_net::proto::packet::add_player::AddPlayer;
 use zuri_net::proto::packet::level_chunk::LevelChunk;
+use zuri_net::proto::packet::move_actor_absolute::MoveActorAbsolute;
 use zuri_net::proto::packet::Packet;
+use zuri_net::proto::packet::remove_actor::RemoveActor;
 use zuri_net::proto::packet::update_block::UpdateBlock;
 use zuri_xbox::live;
 
@@ -43,6 +47,10 @@ impl Plugin for ClientPlugin {
             // Packet events go here.
             .add_event::<LevelChunk>()
             .add_event::<UpdateBlock>()
+            .add_event::<AddActor>()
+            .add_event::<RemoveActor>()
+            .add_event::<AddPlayer>()
+            .add_event::<MoveActorAbsolute>()
 
             .add_startup_system(init_client)
             .add_system_to_stage(CoreStage::Last, graceful_disconnect)
@@ -73,11 +81,11 @@ struct ClientWaiter {
 
 /// Temporary system responsible for starting the thread which handles the login sequence.
 fn init_client(world: &mut World) {
-    let address = env::var("zuri_ip").unwrap_or("127.0.0.1:19132".into());
+    let address = env::var("ZURI_IP").unwrap_or("127.0.0.1:19132".into());
 
     let mut identity_data = None;
     let mut live_token = None;
-    if env::var("xbox").unwrap_or("false".into()).to_lowercase() == "true" {
+    if env::var("XBOX").unwrap_or("false".into()).to_lowercase() == "true" {
         live_token = Some(live::read_or_obtain_token(
             "token.tok".into(),
             |details: &StandardDeviceAuthorizationResponse| {
@@ -184,12 +192,16 @@ fn receive_packets(world: &mut World) {
             Err(err) => return match err {
                 TryRecvError::Empty => {}
                 TryRecvError::Disconnected => {
-                    world.remove_non_send_resource::<Receiver<Vec<Packet>>>().unwrap();
+                    world.remove_non_send_resource::<Receiver<Packet>>().unwrap();
                 }
             },
             Ok(pk) => match pk {
                 Packet::LevelChunk(pk) => world.send_event(pk),
                 Packet::UpdateBlock(pk) => world.send_event(pk),
+                Packet::AddActor(pk) => world.send_event(pk),
+                Packet::RemoveActor(pk) => world.send_event(pk),
+                Packet::AddPlayer(pk) => world.send_event(pk),
+                Packet::MoveActorAbsolute(pk) => world.send_event(pk),
                 _ => {
                     warn!("Unhandled packet {pk}");
                 }
