@@ -35,10 +35,38 @@ pub struct Head {
 
 #[derive(Default, Resource)]
 pub struct EntityMap {
-    pub m: HashMap<u64, Entity>, // todo: an api
+    entity_map: HashMap<u64, (i64, Entity)>,
+    id_map: HashMap<i64, u64>,
 }
 
-impl EntityMap {}
+impl EntityMap {
+    pub fn insert_entity(&mut self, unique_id: i64, runtime_id: u64, entity: Entity) -> Option<(i64, Entity)> {
+        self.id_map.insert(unique_id, runtime_id);
+        if let Some(prev_entity) = self.entity_map.insert(runtime_id, (unique_id, entity)) {
+            return Some(prev_entity)
+        }
+        None
+    }
+
+    pub fn entity_by_rid(&self, rid: u64) -> Option<Entity> {
+        self.entity_map.get(&rid).map(|(_, v)| *v)
+    }
+
+    pub fn entity_by_uid(&self, uid: i64) -> Option<Entity> {
+        self.entity_map.get(match self.id_map.get(&uid) {
+            Some(v) => v,
+            None => return None,
+        }).map(|(_, v)| *v)
+    }
+
+    pub fn remove_entity(&mut self, uid: i64) -> Option<Entity> {
+        let rid = match self.id_map.get(&uid) {
+            Some(v) => v,
+            None => return None,
+        };
+        self.entity_map.remove(rid).map(|(_, v)| v)
+    }
+}
 
 /// A system responsible for spawning entities sent by the server.
 fn add_entity_system(
@@ -49,12 +77,12 @@ fn add_entity_system(
     mut pks: EventReader<AddPlayer>,
     mut pks2: EventReader<AddActor>,
 ) {
-    let spawn_func = &mut |runtime_id: u64, position: Vec3, color: Color| {
+    let spawn_func = &mut |unique_id: i64, runtime_id: u64, position: Vec3, color: Color| {
         // We spawn a capsule for now.
         let mut mat = StandardMaterial::from(color);
         mat.reflectance = 0.01;
         mat.metallic = 0.;
-        if let Some(old_entity) = map.m.insert(runtime_id, commands.spawn(BaseEntityBundle {
+        if let Some((_, old_entity)) = map.insert_entity(unique_id, runtime_id, commands.spawn(BaseEntityBundle {
             render: PbrBundle {
                 mesh: meshes.add(Capsule {
                     ..default()
@@ -68,17 +96,17 @@ fn add_entity_system(
             ..default()
         }).id()) {
             commands.entity(old_entity).despawn_recursive();
-            error!("Server tried to add already existing entity with ID {}", runtime_id);
+            error!("Server tried to add already existing entity with ID {}", unique_id);
         } else {
-            info!("Server spawned an entity with ID {} at {}", runtime_id, position);
+            info!("Server spawned an entity with ID {} at {}", unique_id, position);
         }
     };
 
     for pk in pks.iter() {
-        spawn_func(pk.entity_runtime_id, pk.position, Color::RED);
+        spawn_func(pk.ability_data.entity_unique_id, pk.entity_runtime_id, pk.position, Color::RED);
     }
     for pk in pks2.iter() {
-        spawn_func(pk.entity_runtime_id, pk.position, Color::BLUE);
+        spawn_func(pk.entity_unique_id, pk.entity_runtime_id, pk.position, Color::BLUE);
     }
 }
 
@@ -89,7 +117,7 @@ fn move_entity_absolute_system(
     mut query: Query<&mut Transform>,
 ) {
     for pk in pks.iter() {
-        let e = map.m.get(&pk.entity_runtime_id).cloned().unwrap();
+        let e = map.entity_by_rid(pk.entity_runtime_id).unwrap();
         let mut tr = query.get_mut(e).unwrap();
         tr.translation = pk.position;
     }
@@ -102,15 +130,13 @@ fn remove_entity_system(
     mut pks: EventReader<RemoveActor>,
 ) {
     for pk in pks.iter() {
-        let w = &pk.entity_unique_id as *const i64 as *const u64;
-        let w: &u64 = unsafe { &*w };
-        commands.entity(match map.m.remove(w) {
+        commands.entity(match map.remove_entity(pk.entity_unique_id) {
             None => {
-                error!("Server tried to remove unknown entity with ID {}", w);
+                error!("Server tried to remove unknown entity with ID {}", pk.entity_unique_id);
                 continue;
             }
             Some(e) => e,
         }).despawn_recursive();
-        info!("Server removed entity with ID {}", w);
+        info!("Server removed entity with ID {}", pk.entity_unique_id);
     }
 }

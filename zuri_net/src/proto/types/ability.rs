@@ -37,10 +37,10 @@ pub enum AbilityLayerType {
 
 #[derive(Debug, Clone)]
 pub struct AbilityData {
-    pub(crate) entity_unique_id: i64,
-    pub(crate) player_permissions: u8,
-    pub(crate) command_permission: u8,
-    pub(crate) layers: Vec<AbilityLayer>,
+    pub entity_unique_id: i64,
+    pub player_permissions: u8,
+    pub command_permission: u8,
+    pub layers: Vec<AbilityLayer>,
 }
 
 impl AbilityData {
