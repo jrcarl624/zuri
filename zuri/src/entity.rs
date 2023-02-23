@@ -14,6 +14,7 @@ impl Plugin for EntityPlugin {
         app.insert_resource(EntityMap::default())
             .add_system(add_entity_system)
             .add_system(move_entity_absolute_system)
+            .add_system(interpolate_movement_system)
             .add_system(remove_entity_system);
     }
 }
@@ -33,6 +34,23 @@ pub struct Head {
     pub eye_height: f32,
 }
 
+#[derive(Component, Default)]
+pub struct Interpolation {
+    pub remaining_time: f64,
+    pub vector: Vec3,
+    pub prev_pos: Vec3,
+}
+
+impl Interpolation {
+    pub fn new(pos: Vec3) -> Self {
+        Interpolation {
+            remaining_time: 0.,
+            vector: default(),
+            prev_pos: pos,
+        }
+    }
+}
+
 #[derive(Default, Resource)]
 pub struct EntityMap {
     entity_map: HashMap<u64, (i64, Entity)>,
@@ -43,7 +61,7 @@ impl EntityMap {
     pub fn insert_entity(&mut self, unique_id: i64, runtime_id: u64, entity: Entity) -> Option<(i64, Entity)> {
         self.id_map.insert(unique_id, runtime_id);
         if let Some(prev_entity) = self.entity_map.insert(runtime_id, (unique_id, entity)) {
-            return Some(prev_entity)
+            return Some(prev_entity);
         }
         None
     }
@@ -94,7 +112,7 @@ fn add_entity_system(
                 computed_visibility: Default::default(),
             },
             ..default()
-        }).id()) {
+        }).insert(Interpolation::new(Vec3::new(position.x, position.y, position.z))).id()) {
             commands.entity(old_entity).despawn_recursive();
             error!("Server tried to add already existing entity with ID {}", unique_id);
         } else {
@@ -114,12 +132,15 @@ fn add_entity_system(
 fn move_entity_absolute_system(
     map: Res<EntityMap>,
     mut pks: EventReader<MoveActorAbsolute>,
-    mut query: Query<&mut Transform>,
+    mut query: Query<(&mut Transform, &mut Interpolation)>,
 ) {
     for pk in pks.iter() {
         let e = map.entity_by_rid(pk.entity_runtime_id).unwrap();
-        let mut tr = query.get_mut(e).unwrap();
+        let (mut tr, mut interp) = query.get_mut(e).unwrap();
+        interp.vector = pk.position - interp.prev_pos;
+        interp.prev_pos = pk.position;
         tr.translation = pk.position;
+        interp.remaining_time = 1. / 20. * 2.;
     }
 }
 
@@ -138,5 +159,20 @@ fn remove_entity_system(
             Some(e) => e,
         }).despawn_recursive();
         info!("Server removed entity with ID {}", pk.entity_unique_id);
+    }
+}
+
+fn interpolate_movement_system(
+    time: Res<Time>,
+    mut query: Query<(&mut Transform, &mut Interpolation)>,
+) {
+    for (mut tr, mut interp) in &mut query {
+        interp.remaining_time -= time.delta_seconds_f64();
+        if interp.remaining_time <= 0. {
+            interp.remaining_time = 0.;
+            continue;
+        }
+
+        tr.translation += interp.vector * (time.delta_seconds() / (2. / 20.));
     }
 }
